@@ -15,5 +15,4 @@ CHIP Not {
     PARTS:
     // Put your code here:
 		Nand(a=in, b=in, out=out);
-		// Nand(a=notout, b=notout, out=out); // Not gate
 }
