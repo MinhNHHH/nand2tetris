@@ -16,4 +16,16 @@ CHIP RAM64 {
 
     PARTS:
     // Put your code here:
+		// The MSB xxx bits select one of the RAM8 chips, 
+		// and the LSB yyy bits select one of the registers within the selected RAM8
+		DMux8Way(in=load, sel=address[3..5], a=a1, b=b1, c=c1, d=d1, e=e1, f=f1, g=g1, h=h1);
+		RAM8(in=in, load=a1, address=address[0..2], out=outa1);
+		RAM8(in=in, load=b1, address=address[0..2], out=outa2);
+		RAM8(in=in, load=c1, address=address[0..2], out=outa3);
+		RAM8(in=in, load=d1, address=address[0..2], out=outa4);
+		RAM8(in=in, load=e1, address=address[0..2], out=outa5);
+		RAM8(in=in, load=f1, address=address[0..2], out=outa6);
+		RAM8(in=in, load=g1, address=address[0..2], out=outa7);
+		RAM8(in=in, load=h1, address=address[0..2], out=outa8);
+		Mux8Way16(a=outa1, b=outa2, c=outa3, d=outa4, e=outa5, f=outa6, g=outa7, h=outa8, sel=address[3..5], out=out);
 }
