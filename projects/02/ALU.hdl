@@ -42,9 +42,6 @@ CHIP ALU {
 
     PARTS:
    	// Put you code here:
-		Not16(in=x, out=notX);
-		Not16(in=y, out=notY);
-
 		// Decide x is zero or x.
 		Mux16(a=x, b=false, sel=zx, out=zx16);
 		// Negative x
