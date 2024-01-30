@@ -44,7 +44,7 @@ CHIP ALU {
    	// Put you code here:
 		// Decide x is zero or x.
 		Mux16(a=x, b=false, sel=zx, out=zx16);
-		// Negative x
+		// Negate x
 		Not16(in=zx16, out=notzx16);
 		Mux16(a=zx16, b=notzx16, sel=nx, out=x16);
 
