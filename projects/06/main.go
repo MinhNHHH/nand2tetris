@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -39,6 +40,19 @@ var symbolTable = map[string]int{
 	"R14":    14,
 	"R15":    15,
 }
+
+func commandType(line string) int {
+	if line != "" && strings.HasPrefix(line, "@") {
+		return A_COMMANDS
+	} else if line != "" && strings.HasPrefix(line, "(") {
+		return L_COMMANDS
+	}
+	return C_COMMANDS
+}
+
+// func symbol(line string) string {
+
+// }
 
 func buildSymbol(lines []string) (map[string]int, []string) {
 	cleanContent := []string{}
@@ -93,11 +107,17 @@ func hasMoreCommands(string) bool {
 	return true
 }
 
+func convertNumberToBinary(num int64) string {
+	binaryString := strconv.FormatInt(int64(num), 2)
+	paddedBinaryString := fmt.Sprintf("%016s", binaryString)
+	return paddedBinaryString
+}
+
 func main() {
 	if len(os.Args) != 2 {
 		return
 	}
-
+	// res := []string{}
 	lines, err := readAsm(os.Args[1])
 	if err != nil {
 		return
@@ -111,9 +131,10 @@ func main() {
 	for _, line := range lines {
 		trimmedLine := strings.TrimSpace(line)
 		if trimmedLine != "" && strings.HasPrefix(trimmedLine, "@") {
-			continue
+
 		} else {
+
 		}
 	}
-	fmt.Println(lines)
+
 }
