@@ -4,14 +4,15 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 )
 
+type CommandType int
+
 const (
-	A_COMMANDS = 1
-	C_COMMANDS = 2
-	L_COMMANDS = 3
+	ACommand CommandType = iota
+	CCommand
+	LCommand
 )
 
 // symbolTable contain key is label and value is RAM address.
@@ -41,100 +42,172 @@ var symbolTable = map[string]int{
 	"R15":    15,
 }
 
-func commandType(line string) int {
-	if line != "" && strings.HasPrefix(line, "@") {
-		return A_COMMANDS
-	} else if line != "" && strings.HasPrefix(line, "(") {
-		return L_COMMANDS
-	}
-	return C_COMMANDS
+var jumpCode = map[string]string{
+	"JGT": "001",
+	"JEQ": "010",
+	"JLT": "100",
+	"JNE": "101",
+	"JLE": "110",
+	"JMP": "111",
 }
 
-// func symbol(line string) string {
-
-// }
-
-func buildSymbol(lines []string) (map[string]int, []string) {
-	cleanContent := []string{}
-	for index, line := range lines {
-		trimmedLine := strings.TrimSpace(line)
-		if trimmedLine != "" && strings.HasPrefix(trimmedLine, "(") {
-			symbolTable[trimmedLine[1:len(trimmedLine)-1]] = index
-		} else {
-			cleanContent = append(cleanContent, line)
-		}
-	}
-	return symbolTable, cleanContent
+var destCode = map[string]string{
+	"M":   "001",
+	"D":   "010",
+	"MD":  "011",
+	"A":   "100",
+	"AM":  "101",
+	"AD":  "110",
+	"AMD": "111",
 }
 
-func readAsm(path string) ([]string, error) {
-	data, err := os.Open(path)
+var compCode = map[string]string{
+	"0":   "101010",
+	"1":   "111111",
+	"-1":  "111110",
+	"D":   "001100",
+	"A":   "110000",
+	"M":   "110000",
+	"!D":  "001101",
+	"!A":  "110001",
+	"!M":  "110001",
+	"-D":  "001111",
+	"-A":  "110011",
+	"-M":  "110011",
+	"D+1": "011111",
+	"A+1": "110111",
+	"M+1": "110111",
+	"D-1": "001110",
+	"A-1": "110010",
+	"M-1": "110010",
+	"D+A": "000010",
+	"D+M": "000010",
+	"D-A": "010011",
+	"D-M": "010011",
+	"A-D": "000111",
+	"M-D": "000111",
+	"D&A": "000000",
+	"D&M": "000000",
+	"D|A": "010101",
+	"D|M": "010101",
+}
+
+type Parser struct {
+	scanner        *bufio.Scanner
+	currentRow     int
+	currentCommand string
+}
+
+func NewParser(fileName string) (*Parser, error) {
+	file, err := os.Open(fileName)
 	if err != nil {
 		return nil, err
 	}
 
-	lines := []string{}
-	scanner := bufio.NewScanner(data)
-	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
-	return lines, nil
+	return &Parser{
+		scanner: bufio.NewScanner(file),
+	}, nil
 }
 
-func removeComment(lines []string) []string {
-	cleanContent := []string{}
-	for _, line := range lines {
-		trimmedLine := strings.TrimSpace(line)
-		if trimmedLine != "" && !strings.HasPrefix(trimmedLine, "//") {
-			if index := strings.Index(trimmedLine, "//"); index != -1 {
-				trimmedLine = trimmedLine[:index]
-			}
-			cleanContent = append(cleanContent, trimmedLine)
+func (p *Parser) hasMoreCommands() bool {
+	return p.scanner.Scan()
+}
+
+func (p *Parser) advance() {
+	if !strings.HasPrefix(p.scanner.Text(), "//") {
+		trimmedLine := strings.TrimSpace(p.scanner.Text())
+		if index := strings.Index(trimmedLine, "//"); index != -1 {
+			p.currentCommand = trimmedLine[:index]
+		} else {
+			p.currentCommand = trimmedLine
+		}
+		p.currentRow += 1
+	}
+}
+
+func (p *Parser) symbol() string {
+	switch p.commandType() {
+	case ACommand:
+		return p.currentCommand[1:]
+	case LCommand:
+		return p.currentCommand[1 : len(p.currentCommand)-1]
+	}
+	return ""
+}
+
+func (p *Parser) commandType() CommandType {
+	if strings.HasPrefix(p.currentCommand, "@") {
+		return ACommand
+	} else if strings.HasPrefix(p.currentCommand, "(") {
+		return LCommand
+	}
+	return CCommand
+}
+
+func (p *Parser) dest() string {
+	if p.commandType() == CCommand && strings.Contains(p.currentCommand, "=") {
+		return strings.Split(p.currentCommand, "=")[0]
+	}
+	return ""
+}
+
+func (p *Parser) comp() string {
+	if p.commandType() == CCommand && strings.Contains(p.currentCommand, "=") {
+		splitCommand := strings.Split(p.currentCommand, "=")
+		return strings.Split(splitCommand[1], ";")[0]
+	}
+	return ""
+}
+
+func (p *Parser) jump() string {
+	if p.commandType() == CCommand && strings.Contains(p.currentCommand, "=") {
+		return strings.Split(p.currentCommand, ";")[1]
+	}
+	return ""
+}
+
+type TranslateInstruction struct {
+	parser         *Parser
+	currentAddress int // 16
+	symbolTable    map[string]int
+}
+
+func NewTranslateInstruction(parser *Parser) *TranslateInstruction {
+	return &TranslateInstruction{
+		parser:         parser,
+		currentAddress: 16,
+		symbolTable:    symbolTable,
+	}
+}
+
+func (t *TranslateInstruction) buildSymbolTable() {
+	for t.parser.hasMoreCommands() {
+		t.parser.advance()
+		fmt.Println(t.parser.currentCommand, t.parser.currentRow)
+		if t.parser.commandType() == LCommand {
+			symbol := t.parser.symbol()
+			t.symbolTable[symbol] = t.parser.currentRow
 		}
 	}
-	return cleanContent
-}
-
-func advance(line string) {
-
-}
-
-func hasMoreCommands(string) bool {
-	return true
-}
-
-func convertNumberToBinary(num int64) string {
-	binaryString := strconv.FormatInt(int64(num), 2)
-	paddedBinaryString := fmt.Sprintf("%016s", binaryString)
-	return paddedBinaryString
 }
 
 func main() {
 	if len(os.Args) != 2 {
 		return
 	}
-	// res := []string{}
-	lines, err := readAsm(os.Args[1])
+
+	parser, err := NewParser(os.Args[1])
 	if err != nil {
+		fmt.Println("Error:", err)
 		return
 	}
-	// Remove comments and spaces
-	lines = removeComment(lines)
-	// Build symbol Table
-	symbolTable, lines = buildSymbol(lines)
 
-	// Translate instructions
-	for _, line := range lines {
-		trimmedLine := strings.TrimSpace(line)
-		if trimmedLine != "" && strings.HasPrefix(trimmedLine, "@") {
+	translateInstruction := NewTranslateInstruction(parser)
 
-		} else {
-
-		}
+	translateInstruction.buildSymbolTable()
+	fmt.Println(translateInstruction.symbolTable)
+	if err := parser.scanner.Err(); err != nil {
+		fmt.Println(err)
+		return
 	}
-
 }
