@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -43,59 +44,78 @@ var symbolTable = map[string]int{
 }
 
 var jumpCode = map[string]string{
-	"JGT": "001",
-	"JEQ": "010",
-	"JLT": "100",
-	"JNE": "101",
-	"JLE": "110",
-	"JMP": "111",
+	"null": "000",
+	"JGT":  "001",
+	"JEQ":  "010",
+	"JGE":  "011",
+	"JLT":  "100",
+	"JNE":  "101",
+	"JLE":  "110",
+	"JMP":  "111",
 }
 
 var destCode = map[string]string{
-	"M":   "001",
-	"D":   "010",
-	"MD":  "011",
-	"A":   "100",
-	"AM":  "101",
-	"AD":  "110",
-	"AMD": "111",
+	"null": "000",
+	"M":    "001",
+	"D":    "010",
+	"MD":   "011",
+	"A":    "100",
+	"AM":   "101",
+	"AD":   "110",
+	"AMD":  "111",
 }
 
 var compCode = map[string]string{
-	"0":   "101010",
-	"1":   "111111",
-	"-1":  "111110",
-	"D":   "001100",
-	"A":   "110000",
-	"M":   "110000",
-	"!D":  "001101",
-	"!A":  "110001",
-	"!M":  "110001",
-	"-D":  "001111",
-	"-A":  "110011",
-	"-M":  "110011",
-	"D+1": "011111",
-	"A+1": "110111",
-	"M+1": "110111",
-	"D-1": "001110",
-	"A-1": "110010",
-	"M-1": "110010",
-	"D+A": "000010",
-	"D+M": "000010",
-	"D-A": "010011",
-	"D-M": "010011",
-	"A-D": "000111",
-	"M-D": "000111",
-	"D&A": "000000",
-	"D&M": "000000",
-	"D|A": "010101",
-	"D|M": "010101",
+	"0":   "0101010",
+	"1":   "0111111",
+	"-1":  "0111010",
+	"D":   "0001100",
+	"A":   "0110000",
+	"M":   "1110000",
+	"!D":  "0001101",
+	"!A":  "0110001",
+	"!M":  "1110001",
+	"-D":  "0001111",
+	"-A":  "0110011",
+	"-M":  "1110011",
+	"D+1": "0011111",
+	"A+1": "0110111",
+	"M+1": "1110111",
+	"D-1": "0001110",
+	"A-1": "0110010",
+	"M-1": "1110010",
+	"D+A": "0000010",
+	"D+M": "1000010",
+	"D-A": "0010011",
+	"D-M": "1010011",
+	"A-D": "0000111",
+	"M-D": "1000111",
+	"D&A": "0000000",
+	"D&M": "1000000",
+	"D|A": "0010101",
+	"D|M": "1010101",
 }
 
 type Parser struct {
-	scanner        *bufio.Scanner
-	currentRow     int
+	lines          []string
 	currentCommand string
+	currentRow     int
+}
+
+type Writer struct {
+	writer *os.File
+}
+
+func createFile(fileName string) (*Writer, error) {
+	f, err := os.Create(fileName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Writer{
+		writer: f,
+	}, nil
+
 }
 
 func NewParser(fileName string) (*Parser, error) {
@@ -103,26 +123,44 @@ func NewParser(fileName string) (*Parser, error) {
 	if err != nil {
 		return nil, err
 	}
+	scanner := bufio.NewScanner(file)
+	lines := []string{}
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
 
 	return &Parser{
-		scanner: bufio.NewScanner(file),
+		lines: lines,
 	}, nil
+
 }
 
 func (p *Parser) hasMoreCommands() bool {
-	return p.scanner.Scan()
+	if p.currentRow < len(p.lines) {
+		return true
+	}
+	return false
 }
 
 func (p *Parser) advance() {
-	if !strings.HasPrefix(p.scanner.Text(), "//") {
-		trimmedLine := strings.TrimSpace(p.scanner.Text())
-		if index := strings.Index(trimmedLine, "//"); index != -1 {
-			p.currentCommand = trimmedLine[:index]
-		} else {
-			p.currentCommand = trimmedLine
-		}
+	trimmedLine := strings.TrimSpace(string(p.lines[p.currentRow]))
+
+	if strings.HasPrefix(trimmedLine, "//") || trimmedLine == "" {
 		p.currentRow += 1
+		return
 	}
+
+	if index := strings.Index(trimmedLine, "//"); index != -1 {
+		p.currentCommand = trimmedLine[:index]
+	} else {
+		p.currentCommand = trimmedLine
+	}
+	p.currentRow += 1
+}
+
+func (p *Parser) reset() {
+	p.currentRow = 0
+	p.currentCommand = ""
 }
 
 func (p *Parser) symbol() string {
@@ -136,6 +174,9 @@ func (p *Parser) symbol() string {
 }
 
 func (p *Parser) commandType() CommandType {
+	if p.currentCommand == "" {
+		return -1
+	}
 	if strings.HasPrefix(p.currentCommand, "@") {
 		return ACommand
 	} else if strings.HasPrefix(p.currentCommand, "(") {
@@ -144,36 +185,29 @@ func (p *Parser) commandType() CommandType {
 	return CCommand
 }
 
-func (p *Parser) dest() string {
-	if p.commandType() == CCommand && strings.Contains(p.currentCommand, "=") {
-		return strings.Split(p.currentCommand, "=")[0]
-	}
-	return ""
+func (p *Parser) dest(code string) string {
+	return destCode[code]
 }
 
-func (p *Parser) comp() string {
-	if p.commandType() == CCommand && strings.Contains(p.currentCommand, "=") {
-		splitCommand := strings.Split(p.currentCommand, "=")
-		return strings.Split(splitCommand[1], ";")[0]
-	}
-	return ""
+func (p *Parser) comp(code string) string {
+	return compCode[code]
 }
 
-func (p *Parser) jump() string {
-	if p.commandType() == CCommand && strings.Contains(p.currentCommand, "=") {
-		return strings.Split(p.currentCommand, ";")[1]
-	}
-	return ""
+func (p *Parser) jump(code string) string {
+	return jumpCode[code]
 }
 
 type TranslateInstruction struct {
+	writer         *Writer
 	parser         *Parser
-	currentAddress int // 16
+	currentAddress int
+	currentROM     int
 	symbolTable    map[string]int
 }
 
-func NewTranslateInstruction(parser *Parser) *TranslateInstruction {
+func NewTranslateInstruction(parser *Parser, writer *Writer) *TranslateInstruction {
 	return &TranslateInstruction{
+		writer:         writer,
 		parser:         parser,
 		currentAddress: 16,
 		symbolTable:    symbolTable,
@@ -183,10 +217,51 @@ func NewTranslateInstruction(parser *Parser) *TranslateInstruction {
 func (t *TranslateInstruction) buildSymbolTable() {
 	for t.parser.hasMoreCommands() {
 		t.parser.advance()
-		fmt.Println(t.parser.currentCommand, t.parser.currentRow)
 		if t.parser.commandType() == LCommand {
 			symbol := t.parser.symbol()
-			t.symbolTable[symbol] = t.parser.currentRow
+			t.symbolTable[symbol] = t.currentROM
+		} else if t.parser.commandType() == CCommand || t.parser.commandType() == ACommand {
+			t.currentROM++
+		}
+	}
+}
+
+func convertNumberToBinary(num int) string {
+	binaryString := strconv.FormatInt(int64(num), 2)
+	paddedBinaryString := fmt.Sprintf("%016s", binaryString)
+	return paddedBinaryString
+}
+
+func (t *TranslateInstruction) genCode() {
+	t.parser.reset()
+	for t.parser.hasMoreCommands() {
+		t.parser.advance()
+		if t.parser.commandType() == ACommand {
+			res := ""
+			if value, err := strconv.Atoi(t.parser.symbol()); err == nil {
+				res = convertNumberToBinary(value)
+			} else {
+				if value, exist := t.symbolTable[t.parser.symbol()]; exist {
+					res = convertNumberToBinary(value)
+				} else {
+					t.symbolTable[t.parser.symbol()] = t.currentAddress
+					res = convertNumberToBinary(t.symbolTable[t.parser.symbol()])
+					t.currentAddress++
+				}
+			}
+			t.writer.writer.WriteString(res + "\n")
+		} else if t.parser.commandType() == CCommand {
+			CCode := "111"
+			code := ""
+			if strings.Contains(t.parser.currentCommand, "=") {
+				splitCode := strings.Split(t.parser.currentCommand, "=")
+				code += t.parser.comp(strings.TrimSpace(splitCode[1])) + t.parser.dest(splitCode[0]) + t.parser.jump("null")
+			} else if strings.Contains(t.parser.currentCommand, ";") {
+				splitCode := strings.Split(t.parser.currentCommand, ";")
+				code += t.parser.comp(splitCode[0]) + t.parser.dest("null") + t.parser.jump(strings.TrimSpace(splitCode[1]))
+			}
+			CCode += code
+			t.writer.writer.WriteString(CCode + "\n")
 		}
 	}
 }
@@ -196,18 +271,24 @@ func main() {
 		return
 	}
 
+	// Frist pass: Clear comment and build a symbolTable
 	parser, err := NewParser(os.Args[1])
 	if err != nil {
 		fmt.Println("Error:", err)
 		return
 	}
-
-	translateInstruction := NewTranslateInstruction(parser)
-
-	translateInstruction.buildSymbolTable()
-	fmt.Println(translateInstruction.symbolTable)
-	if err := parser.scanner.Err(); err != nil {
-		fmt.Println(err)
+	outputFile := strings.Split(os.Args[1], ".")[0] + ".hack"
+	writer, err2 := createFile(outputFile)
+	if err2 != nil {
+		fmt.Println("Error:", err)
 		return
 	}
+
+	translateInstruction := NewTranslateInstruction(parser, writer)
+	translateInstruction.buildSymbolTable()
+
+	// Second pass: Translate instruction to binary
+	translateInstruction.genCode()
+
+	translateInstruction.writer.writer.Close()
 }
