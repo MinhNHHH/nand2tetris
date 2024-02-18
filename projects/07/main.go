@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -136,7 +137,7 @@ func (p *Parser) advance() {
 		p.currentCommand = trimmedLine
 	}
 	p.arg1 = p.getArg1()
-	p.arg2 = p.getArg2()
+	// p.arg2 = p.getArg2()
 	p.currentRow += 1
 }
 
@@ -180,7 +181,7 @@ func (c *CodeWriter) add() ASMType {
 func (c *CodeWriter) sub() ASMType {
 	translator := ""
 	translator += "@SP\n"
-	translator += "@AM=M-1\n"
+	translator += "AM=M-1\n"
 	translator += "D=M\n"
 	translator += "@SP\n" // pop first value into D
 	translator += "AM=M-1\n"
@@ -193,7 +194,7 @@ func (c *CodeWriter) sub() ASMType {
 func (c *CodeWriter) neg() ASMType {
 	translator := ""
 	translator += "@SP\n"
-	translator += "@A=M-1\n"
+	translator += "A=M-1\n"
 	translator += "M=-M\n"
 	return ASMType(translator)
 }
@@ -295,6 +296,280 @@ func (c *CodeWriter) lt() ASMType {
 	return ASMType(translator)
 }
 
+func (c *CodeWriter) pushConstant(index int) ASMType {
+	translator := ""
+	translator += fmt.Sprintf("@%d", index) + "\n"
+	translator += "D=A\n"
+	translator += "@SP\n"
+	translator += "A=M\n"
+	translator += "M=D\n"
+	translator += "@SP\n"
+	translator += "M=M+1\n"
+	return ASMType(translator)
+}
+
+func (c *CodeWriter) pushThis(index int) ASMType {
+	translator := ""
+	translator += "@THIS\n"                        // Address of base of 'this' segment
+	translator += "D=M\n"                          // D = M[THIS], base address of 'this' segment
+	translator += fmt.Sprintf("@%d", index) + "\n" // Offset to the desired element
+	translator += "A=D+A\n"                        // Calculate address: THIS + index
+	translator += "D=M\n"
+	translator += "@SP\n"
+	translator += "A=M\n"
+	translator += "M=D\n"
+	translator += "@SP\n"
+	translator += "M=M+1\n"
+	return ASMType(translator)
+}
+
+func (c *CodeWriter) popThis(index int) ASMType {
+	translator := ""
+	translator += "@THIS\n"                        // Address of base of 'this' segment
+	translator += "D=M\n"                          // D = M[THIS], base address of 'this' segment
+	translator += fmt.Sprintf("@%d", index) + "\n" // Offset to the desired element
+	translator += "D=D+A\n"                        // Calculate address: THIS + index
+	translator += "@R13\n"                         // Temporarily store the address in R13
+	translator += "M=D\n"                          // M[R13] = THIS + 0
+	translator += "@SP\n"                          // Decrement SP and set A to point to top of stack
+	translator += "AM=M-1\n"                       // Decrement the stack pointer and set A to point to the top of the stack
+	translator += "D=M\n"                          // Load the value from the top of the stack to D-register
+	translator += "@R13\n"                         // Retrieve the address from R13
+	translator += "A=M\n"                          // Set the A-register to the target address
+	translator += "M=D\n"                          // Store value from the stack into the target local variable
+	return ASMType(translator)
+}
+func (c *CodeWriter) pushThat(index int) ASMType {
+	translator := ""
+	translator += "@THAT\n"                        // Address of base of 'this' segment
+	translator += "D=M\n"                          // D = M[THAT], base address of 'this' segment
+	translator += fmt.Sprintf("@%d", index) + "\n" // Offset to the desired element
+	translator += "A=D+A\n"                        // Calculate address: THIS + index
+	translator += "D=M\n"
+	translator += "@SP\n"
+	translator += "A=M\n"
+	translator += "M=D\n"
+	translator += "@SP\n"
+	translator += "M=M+1\n"
+	return ASMType(translator)
+}
+
+func (c *CodeWriter) popThat(index int) ASMType {
+	translator := ""
+	translator += "@THAT\n"                        // Address of base of 'this' segment
+	translator += "D=M\n"                          // D = M[THAT], base address of 'this' segment
+	translator += fmt.Sprintf("@%d", index) + "\n" // Offset to the desired element
+	translator += "D=D+A\n"                        // Calculate address: THIS + index
+	translator += "@R13\n"                         // Temporarily store the address in R13
+	translator += "M=D\n"                          // M[R13] = THIS + 0
+	translator += "@SP\n"                          // Decrement SP and set A to point to top of stack
+	translator += "AM=M-1\n"                       // Decrement the stack pointer and set A to point to the top of the stack
+	translator += "D=M\n"                          // Load the value from the top of the stack to D-register
+	translator += "@R13\n"                         // Retrieve the address from R13
+	translator += "A=M\n"                          // Set the A-register to the target address
+	translator += "M=D\n"                          // Store value from the stack into the target local variable
+	return ASMType(translator)
+}
+
+func (c *CodeWriter) pushStatic(index int) ASMType {
+	translator := ""
+	translator += fmt.Sprintf("@STATIC_%d", index) + "\n"
+	translator += "D=M\n"
+	translator += "@SP\n"
+	translator += "A=M\n"
+	translator += "M=D\n"
+	translator += "@SP\n"
+	translator += "M=M+1\n"
+	return ASMType(translator)
+}
+
+func (c *CodeWriter) popStatic(index int) ASMType {
+	translator := ""
+	translator += fmt.Sprintf("@STATIC_%d", index) + "\n"
+	translator += "D=A\n"
+	translator += "@R13\n"
+	translator += "@M=D\n" // M[index] = STATIC_index
+	translator += "@SP\n"
+	translator += "AM=M-1\n"
+	translator += "D=M\n"
+	translator += "@R13"
+	translator += "A=M\n" // Set the A-register to the target address
+	translator += "M=D\n" // Store value from the stack into the target local variable
+	return ASMType(translator)
+}
+
+func (c *CodeWriter) pushLocal(index int) ASMType {
+	translator := ""
+	translator += "@LCL\n"                         // Load the base address of the local segment into the A-register
+	translator += "D=M\n"                          // Load the value stored at the base address into the D-register
+	translator += fmt.Sprintf("@%d", index) + "\n" // Load the index of the desired local variable into the A-register
+	translator += "A=D+A\n"                        // Calculate the address of the desired local variable
+	translator += "D=M\n"                          // Load the value of the desired local variable into the D-register
+	translator += "@SP\n"
+	translator += "A=M\n"
+	translator += "M=D\n"
+	translator += "@SP\n"
+	translator += "M=M+1\n"
+	return ASMType(translator)
+}
+
+func (c *CodeWriter) popLocal(index int) ASMType {
+	translator := ""
+	translator += "@LCL\n"                         // Load the base address of the local segment into the A-register
+	translator += "D=M\n"                          // Load the value stored at the base address into the D-register
+	translator += fmt.Sprintf("@%d", index) + "\n" // Load the index of the desired local variable into the A-register
+	translator += "D=D+A\n"
+	translator += "@R13\n"
+	translator += "M=D\n"
+	translator += "@SP\n"
+	translator += "AM=M-1\n"
+	translator += "D=M\n"
+	translator += "@R13\n"
+	translator += "A=M\n"
+	translator += "M=D\n"
+	return ASMType(translator)
+}
+
+func (c *CodeWriter) pushArgument(index int) ASMType {
+	translator := ""
+	translator += "@ARG\n"
+	translator += "D=M\n"
+	translator += fmt.Sprintf("@%d", index) + "\n"
+	translator += "A=D+A\n"
+	translator += "D=M\n"
+	translator += "@SP\n"
+	translator += "A=M\n"
+	translator += "M=D\n"
+	translator += "@SP\n"
+	translator += "M=M+1\n"
+	return ASMType(translator)
+}
+
+func (c *CodeWriter) popArgument(index int) ASMType {
+	translator := ""
+	translator += "@ARG\n"
+	translator += "D=M\n"
+	translator += fmt.Sprintf("@%d", index) + "\n"
+	translator += "D=D+A\n"
+	translator += "@R13\n"
+	translator += "M=D\n"
+	translator += "@SP\n"
+	translator += "AM=M-1\n"
+	translator += "D=M\n"
+	translator += "@R13\n"
+	translator += "A=M\n"
+	translator += "M=D\n"
+	return ASMType(translator)
+}
+
+func (c *CodeWriter) pushTemp(index int) ASMType {
+	translator := ""
+	translator += fmt.Sprintf("@%d", index) + "\n"
+	translator += "D=A\n"
+	translator += "@R5\n"
+	translator += "A=D+A\n"
+	translator += "D=M\n"
+	translator += "@SP\n"
+	translator += "A=M\n"
+	translator += "M=D\n"
+	translator += "@SP\n"
+	translator += "M=M+1\n"
+	return ASMType(translator)
+}
+
+func (c *CodeWriter) popTemp(index int) ASMType {
+	translator := ""
+	translator += fmt.Sprintf("@%d", index) + "\n"
+	translator += "D=A\n"
+	translator += "@R5\n"
+	translator += "D=D+A\n"
+	translator += "@R13\n"
+	translator += "M=D\n"
+	translator += "@SP\n"
+	translator += "AM=M-1\n"
+	translator += "D=M\n"
+	translator += "@R13\n"
+	translator += "A=M\n"
+	translator += "M=D\n"
+	return ASMType(translator)
+}
+
+func (c *CodeWriter) pushPointer(index int) ASMType {
+	translator := ""
+
+	if index == 0 {
+		translator += "@THIS\n"
+	} else if index == 1 {
+		translator += "@THAT\n"
+	} else {
+		return ""
+	}
+	translator += "D=M\n" // D = THAT : load the value stored at the 'that' pointer into the D-register
+	translator += "@SP\n"
+	translator += "A=M\n"
+	translator += "M=D\n"
+	translator += "@SP\n"
+	translator += "M=M+1\n"
+	return ASMType(translator)
+}
+
+func (c *CodeWriter) popPointer(index int) ASMType {
+	translator := ""
+	translator += "@SP\n"
+	translator += "AM=M-1\n"
+	translator += "D=M\n"
+	if index == 0 {
+		translator += "@THIS\n"
+	} else if index == 1 {
+		translator += "@THAT\n"
+	} else {
+		return ""
+	}
+	translator += "M=D\n"
+	return ASMType(translator)
+}
+
+func (c *CodeWriter) writerPushPop(command string, segment string, index int) (ASMType, error) {
+	if command == "push" {
+		switch segment {
+		case "pointer":
+			return c.pushPointer(index), nil
+		case "this":
+			return c.pushThis(index), nil
+		case "that":
+			return c.pushThat(index), nil
+		case "static":
+			return c.pushStatic(index), nil
+		case "local":
+			return c.pushLocal(index), nil
+		case "argument":
+			return c.pushArgument(index), nil
+		case "temp":
+			return c.pushTemp(index), nil
+		case "constant":
+			return c.pushConstant(index), nil
+		}
+	} else if command == "pop" {
+		switch segment {
+		case "pointer":
+			return c.popPointer(index), nil
+		case "this":
+			return c.popThis(index), nil
+		case "that":
+			return c.popThat(index), nil
+		case "static":
+			return c.popStatic(index), nil
+		case "local":
+			return c.popLocal(index), nil
+		case "argument":
+			return c.popArgument(index), nil
+		case "temp":
+			return c.popTemp(index), nil
+		}
+	}
+	return "", fmt.Errorf("The command not implemented yet")
+
+}
 func (c *CodeWriter) writeArithmetic(command string) (ASMType, error) {
 	switch command {
 	case "add":
@@ -322,8 +597,25 @@ func (c *CodeWriter) writeArithmetic(command string) (ASMType, error) {
 func (c *CodeWriter) genCode() {
 	c.parser.reset()
 	for c.parser.hasMoreCommands() {
+		translateCode := ""
 		c.parser.advance()
-		fmt.Println(c.writeArithmetic(string(c.parser.arg1)))
+		cmType := c.parser.commandType(string(c.parser.arg1))
+		if cmType == C_POP || cmType == C_PUSH {
+			splitText := strings.Split(c.parser.currentCommand, " ")
+			index, _ := strconv.Atoi(splitText[2])
+			code, err := c.writerPushPop(splitText[0], splitText[1], index)
+			if err != nil {
+				continue
+			}
+			translateCode = string(code)
+		} else {
+			code, err := c.writeArithmetic(string(c.parser.arg1))
+			if err != nil {
+				continue
+			}
+			translateCode = string(code)
+		}
+		c.writer.writer.WriteString(translateCode)
 	}
 }
 
